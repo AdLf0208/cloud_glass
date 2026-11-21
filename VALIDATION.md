@@ -1,14 +1,19 @@
 # Validation
 
-> **Current package (2026-11-20, SDK `0b14f8a`).** One flat `.hmod`:
-> `cloudglass.hmod` **55,220 B** SHA-256
-> `af0a220fda3d19b06fe3803d56cacdd84d0140f50687bf8084476dd5f8effc5c`, version
-> **0.2.1**, 164 entries. `cargo test` **8/8**, clippy/fmt clean, `check` and
-> `fits` EXIT 0, `verify-sdk-package.py` **1/1**, and the **in-game leg** is green
+> **Current package (2026-11-21, SDK `0a875da`).** One flat `.hmod`:
+> `cloudglass.hmod` **59,244 B** SHA-256
+> `bc86c31e60c7f540329ed01dbf3bf03c2a920b822084ba3763e59780e9fc6f06`, version
+> **0.2.2**, 165 entries. `cargo test` **10/10**, clippy/fmt clean, `check` and both
+> `fits` runs EXIT 0, `verify-sdk-package.py` **1/1**, and the **in-game leg** is green
 > on a launcher-built game at the pin (`PASS` + `EXIT:0`) with its control leg at
-> `EXIT:1` and `check-e2e-logs.py cloudglass-e2e --strict` 6/6. See
-> `notes.md` *Slice 2 — the in-game leg at SDK `0b14f8a`*. Everything below it is
-> history.
+> `EXIT:1`, the client eye overlay proved as a screenshot differential, and
+> `check-e2e-logs.py cloudglass-e2e --strict` 12/12. See `notes.md` *Slice 3 — the
+> client eye overlay*. Everything below it is history.
+
+> **2026-11-20 (SDK `0b14f8a`, 0.2.1).** `cloudglass.hmod` **55,220 B**
+> `af0a220f…ffc5c`, version 0.2.1, 164 entries; `cargo test` 8/8 and the first
+> launcher-built in-game leg (control `EXIT:1`). Superseded by 0.2.2 above, which adds
+> the eye overlay and the re-pin.
 
 > **2026-11-18 (SDK format migration).** One flat `.hmod`: **54,752 B** SHA-256
 > `4a8b9fb7…bc497`, version 0.2.0, 164 entries; `cargo test` 7/7,
@@ -141,3 +146,34 @@ exported it beside the unmodified control. Every run went through
 
 The first run's red log (the stale "Unknown block tag" assumption) is kept at
 `evidence/cloudglass-e2e/found-defect/`.
+
+## 2026-11-21 — 0.2.2, the client eye overlay at SDK `0a875da`
+
+Re-pinned `[native]` from `0b14f8a` to the working pin
+`0a875da91dbb0fdcb7ba8c42c11341aa229af51a` (mixins unchanged `e59da909…`) and implemented
+upstream's eye overlay on `gui_layer_pre`. `.horizon/sdk` was deleted before the first build
+because a re-pin does not refresh it; `cargo horizon-mod build` fetched `0a875da` and said so.
+Every step ran in a `ports/tools/build-slot.sh` lease with `CARGO_INCREMENTAL=0` and
+`BUILD_LOCAL=1` (this port's commands are `bash -c 'cd ports/cloudglass && …'`).
+
+| Check | Result | Evidence |
+|---|---|---|
+| unit tests | **10 passed**, 0 failed (2 new: overlay ARGB, eye block) | `cloudglass/sdk-test.log` |
+| clippy / fmt | 0 warnings, `CLIPPY_EXIT:0`; `FMT_EXIT:0` | `sdk-clippy.log`, `sdk-fmt.log` |
+| build ×2 (`rm -f Cargo.lock` each) | exit 0 both, `cmp` identical, **59,244 B** `bc86c31e…6f06` | `sdk-build.log`, `sdk-build-second.log` |
+| check | `cloudglass 0.2.2 (native-mod, format native-1/0a875da91…/e59da909…, for 26.3)`, `CHECK_EXIT:0` | `sdk-check.log` |
+| fits, same pin | `0a875da  made for`, `FITS_EXIT:0` | `fits-0a875da.log` |
+| fits, a different build | `0b14f8a  fits`, `FITS_EXIT:0` | `fits-0b14f8a.log` |
+| gate | `verify-sdk-package.py cloudglass` **1/1** | `slice3/verify-sdk-package.log` |
+| launcher build | `Compiling cloudglass (1 of 1)`, exported `native-0a875da-0ab71aebfa5a` | `slice3/launcher-build.log` |
+| e2e default | **PASS + EXIT:0**; tint off 221.8, glass 222.3, eye **154.8**, feet 242.6 | `cloudglass-e2e/e2e-launcher-0.2.2.log` |
+| e2e counterfactual | **PASS + EXIT:0** | `e2e-counterfactual-0.2.2.log` |
+| e2e `SELFTEST=1` | **FAIL + EXIT:1** by design | `e2e-selftest-0.2.2.log` |
+| e2e `TINT_SELFTEST=1` | **FAIL + EXIT:1** by design (inverted feet claim) | `e2e-tint-selftest-0.2.2.log` |
+| e2e control | **FAIL + EXIT:1** by design | `e2e-control-0.2.2.log` |
+| red against 0.2.1 | **FAIL + EXIT:1** (`cloud glass at the eye did not tint`, eye 233.0 vs off 222.3) | `e2e-red-previous-package.log` |
+| log audit | `check-e2e-logs.py cloudglass-e2e --strict` exit 0, **12/12** | — |
+
+Delivered package: `cloudglass.hmod`, 59,244 B, 165 entries, no `Cargo.lock`, version 0.2.2,
+`uses.json` names `hook:gui_layer_pre`. Gaps 2–3 (beacon beam tint, note-block instrument) are
+unchanged and remain `blocked(content-schema)`; no upstream defect was found in this slice.

@@ -42,9 +42,29 @@ pub fn tint_for(block: &str) -> Option<u32> {
         .map(|(_, rgb)| *rgb)
 }
 
+/// The alpha the eye overlay fills the frame with: upstream's `ALPHA`
+/// (`ClientTick.java:17`, `0x80`).
+pub const OVERLAY_ALPHA: u32 = 0x80;
+
+/// The ARGB the eye overlay fills the whole frame with while the eye is inside
+/// `block`, or `None` for any other block: upstream's
+/// `(ALPHA << 24) | block.getTintRgb()` (`ClientTick.java:24-43`).
+#[must_use]
+pub fn overlay_argb(block: &str) -> Option<u32> {
+    tint_for(block).map(|rgb| (OVERLAY_ALPHA << 24) | rgb)
+}
+
+/// The block a world position is inside, as `BlockPos.containing` gives it:
+/// each coordinate floored, so a negative coordinate moves down a block. The
+/// overlay keys on the block containing the player's eyes.
+#[must_use]
+pub fn block_at(position: [f64; 3]) -> [i32; 3] {
+    position.map(|coordinate| coordinate.floor() as i32)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DIFFUSE, tint_for};
+    use super::{DIFFUSE, block_at, overlay_argb, tint_for};
 
     /// One Cloud Glass colour: the vanilla dye it is named after and the
     /// `MapColor` id the block declares.
@@ -279,6 +299,41 @@ mod tests {
         assert_eq!(tint_for("minecraft:glass"), None);
         assert_eq!(tint_for("cloudglass:white_stained_glass"), None);
         assert_eq!(tint_for("other:orange_cloud_glass"), None);
+    }
+
+    /// The overlay's ARGB is the dye's diffuse colour at upstream's alpha
+    /// `0x80` (`ClientTick.java:17,24-43`), and nothing for any other block.
+    #[test]
+    fn the_overlay_fills_with_the_dye_colour_at_alpha_0x80() {
+        assert_eq!(
+            overlay_argb("cloudglass:orange_cloud_glass"),
+            Some(0x80F9_801D)
+        );
+        assert_eq!(
+            overlay_argb("cloudglass:white_cloud_glass"),
+            Some(0x80F9_FFFE)
+        );
+        assert_eq!(
+            overlay_argb("cloudglass:black_cloud_glass"),
+            Some(0x801D_1D21)
+        );
+        assert_eq!(overlay_argb("minecraft:glass"), None);
+        assert_eq!(overlay_argb("cloudglass:orange_stained_glass"), None);
+        for colour in COLOURS {
+            let argb = overlay_argb(&colour.block_id())
+                .unwrap_or_else(|| panic!("{} has no overlay colour", colour.name));
+            assert_eq!(argb >> 24, 0x80, "{} is not at alpha 0x80", colour.name);
+            assert_eq!(argb & 0xFF_FFFF, tint_for(&colour.block_id()).unwrap_or(0));
+        }
+    }
+
+    /// The eye block is the block containing the eye (`BlockPos.containing`):
+    /// each coordinate floored, so a negative coordinate moves down a block.
+    #[test]
+    fn the_eye_block_is_the_block_containing_the_eye() {
+        assert_eq!(block_at([0.5, 81.62, 0.5]), [0, 81, 0]);
+        assert_eq!(block_at([-0.5, 81.9, -0.001]), [-1, 81, -1]);
+        assert_eq!(block_at([12.999, 80.0, 7.0]), [12, 80, 7]);
     }
 
     /// The carried recipes and this model must name the same set: one wool +

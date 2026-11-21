@@ -6,11 +6,11 @@ no-collision decorative glass blocks**, one per vanilla dye colour
 (`cloudglass:<colour>_cloud_glass`).
 
 This is one flat SDK package (mod API `0.2`): the blocks are content in
-`assets/` and `data/`, and `src/` carries the port's colour-registry model
-(the same pure `runtime.rs` the retired `.hnmod` bundle used, byte for byte).
-The package registers nothing from Rust and needs no game hook; the mod's one
-code behaviour beyond the data files — the client eye tint — is a recorded gap
-(see [`notes.md`](notes.md)).
+`assets/` and `data/`, and `src/` carries the port's colour-registry model plus
+the mod's one code behaviour, the client eye tint: while the block containing
+the player's eye is a Cloud Glass block, the frame is filled with that dye's
+diffuse colour at alpha `0x80`, as upstream's `ClientTick` layer does. The
+package registers nothing from Rust.
 
 ## Build and check
 
@@ -43,17 +43,19 @@ tables drop exactly one of themselves, **all 31 carried recipes** craft their
 declared output and consume their ingredients, both `c:` tag families resolve,
 and walking through cloud glass equals walking through air while vanilla glass
 stops the player and cobweb slows them. A control run of the same Nightly
-without the package fails at the first assertion. The client eye tint is the
-one recorded gap — no client hook is implemented yet, and the leg reports the
-measured frame instead of claiming a tint.
+without the package fails at the first assertion. The client eye tint is
+measured as a screenshot differential: cloud glass at the eye moves the frame,
+vanilla glass at the eye and a cloud glass block at the feet alone do not, and
+`TINT_SELFTEST=1` inverts the feet claim so the assertion is proven
+fail-capable.
 
 ## Contents
 
 | Path | Files | What |
 |---|---:|---|
-| `horizon-mod.toml` | 1 | the only manifest: `cloudglass` 0.2.1, API 0.2, `[native]` pin |
-| `Cargo.toml`, `src/lib.rs` | 2 | one crate; the empty `impl Hooks` at the root |
-| `src/runtime.rs` | 1 | the carried pure colour registry, 8 tests |
+| `horizon-mod.toml` | 1 | the only manifest: `cloudglass` 0.2.2, API 0.2, `[native]` pin |
+| `Cargo.toml`, `src/lib.rs`, `src/support.rs` | 3 | one crate; the `impl Hooks` answering `gui_layer_pre`, and its glue |
+| `src/runtime.rs` | 1 | the carried pure colour registry, the overlay ARGB and the eye-block rule, 10 tests |
 | `assets/cloudglass/blockstates/` | 16 | single-variant cube blockstates |
 | `assets/cloudglass/models/block/` | 16 | `cube_all`, `force_translucent` |
 | `assets/cloudglass/items/` | 16 | 26.3 item model definitions |

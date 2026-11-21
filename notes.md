@@ -9,21 +9,27 @@ ATM10 pack row is `cloudglass, Cloud Glass, 1.1.0` (same version).
 `neoforge.mods.toml` says `license="MIT"`). Local-only until the maintainer
 approves publishing (ARCHITECTURE.md §8).
 
-> **Current package (2026-11-20):** the port is one flat SDK `.hmod` at
-> `ports/cloudglass/cloudglass.hmod`, version **0.2.1**, API `native-1/0b14f8a/e59da90`,
-> **55,220 B**, SHA-256 `af0a220f…ffc5c`. It has a **launcher-built in-game leg** at the pin
-> (`PASS` + `EXIT:0`, control `EXIT:1`); see *Slice 2 — the in-game leg at SDK `0b14f8a`*.
-> The `.hnmod` container below is retired (Horizon's mod-API merge); its tree is kept
-> under `../_shared/evidence/cloudglass/retired-hnmod-0.1.0/`. The migration record —
+> **Current package (2026-11-21):** the port is one flat SDK `.hmod` at
+> `ports/cloudglass/cloudglass.hmod`, version **0.2.2**, API `native-1/0a875da/e59da90`,
+> **59,244 B**, SHA-256 `bc86c31e…6f06`. It has a **launcher-built in-game leg** at the pin
+> (`PASS` + `EXIT:0`, control `EXIT:1`) including the client eye overlay as a **screenshot
+> differential**; see *Slice 3 — the client eye overlay*. The `.hnmod` container below is
+> retired (Horizon's mod-API merge); its tree is kept under
+> `../_shared/evidence/cloudglass/retired-hnmod-0.1.0/`. The migration record —
 > file map, the hook mapping, the trap list and the supersede text for PR #907 — is
-> the last two sections of this file.
+> below.
 
-Status: **slices 1 and 2 implemented and verified in-game.** Cloud Glass is a
-content-only mod: sixteen semi-transparent, no-collision decorative blocks, their two shaped
-recipe families, loot, lang and one creative tab. There is no gameplay hook and no block entity.
-The ladder is green (8 runtime tests, 0 warnings) and the fail-capable in-game leg passes on a
-launcher-built game at `0b14f8a` with its control leg failing without the package; the client eye
-tint remains the one unported behaviour.
+Status: **slices 1–3 implemented and verified in-game.** Cloud Glass is a mostly content
+mod: sixteen semi-transparent, no-collision decorative blocks, their two shaped recipe
+families, loot, lang, one creative tab, and one client behaviour — the eye tint upstream
+draws while the player's eye is inside a block. There is no block entity and no gameplay
+hook. The ladder is green (10 runtime tests, 0 warnings) and the fail-capable in-game leg
+passes on a launcher-built game at `0a875da` with its control leg failing without the
+package.
+
+Note on the tier: the row is **class `content`, tier `data`**, and the eye tint is its one
+**client half** — a renderer/overlay, not a new game mechanic. The blocks stay carried
+content; the only code is the overlay glue and the pure colour model.
 
 ## Scope
 
@@ -682,6 +688,10 @@ Skills: superpowers/using-superpowers,writing-plans,test-driven-development,veri
    *(2026-11-20: the launcher-built game at `0b14f8a` now exists and the tint phase runs against
    it — it measures no tint (cloud glass 181.5–198.3 vs off 195.6–196.0), exactly as recorded.
    The overlay is still the next slice's work, and the harness that will prove it is in place.)*
+   **(Closed 2026-11-21 — see *Slice 3 — the client eye overlay*. The overlay is implemented on
+   `gui_layer_pre` and the tint phase is a hard screenshot differential: cloud glass at the eye
+   moves the frame's mean from orange distance 221.8 to 154.8, vanilla glass does not, and a block
+   at the feet alone does not.)**
 2. **Beacon beam tint** — a content block cannot override the beam colour (the pin derives
    it from the `minecraft:*_stained_glass` name). Cosmetic only; unchanged from 0.1.0.
 3. **Note-block instrument** — the content block schema has no instrument field; the pitch
@@ -786,7 +796,7 @@ now SHA-256 `28785f9d8de0…` (164 entries, packed copy identical). Nothing in t
 | 31 recipes (16 wool + glass → 4, 15 white + dye → 8) | **tested** | *recipes*: every one crafted in a table, output id **and** count asserted, grid empty after taking, output in the inventory; two stick controls stay empty; `RECIPE_SELFTEST=1` proves the count check can fail |
 | `c:glass_blocks/*`, `c:dyes/*` tags | **tested** | *tags*: `#c:glass_blocks/colorless` matches glass and not a cloud glass block; `#c:dyes/light_blue` matches the dye and not red |
 | no collision / no slowdown | **tested** | *walk*: cloud glass 8.59 vs air 8.59 blocks in 2 s, vanilla glass 1.20, cobweb 2.09 |
-| client eye tint (`ClientTick.java:24-43`) | **not ported** (next slice) | *tint*: measured frame recorded as a gap; cloud glass 181.5–198.3 vs off 195.6–196.0, vanilla glass 190.4–197.4 — no tint claimed, and a vanilla-glass tint still fails |
+| client eye tint (`ClientTick.java:24-43`) | **tested** | *tint* (screenshot differential): cloud glass **at the eye** moves the frame's central 40 % from orange distance **221.8** (off) to **154.8**; vanilla glass at the eye stays **222.3**; a cloud glass block at the **feet** alone stays **242.6**, so the overlay reads the eye and not the feet. `TINT_SELFTEST=1` inverts the feet assertion and fails (`EXIT:1`) |
 | beacon beam tint, note-block instrument | **not ported** (content schema has no field) | recorded in *Gaps* 2–3 |
 | panes | **not ported** (upstream 1.1.0 has none) | recorded in *Gaps* 1 of the 0.1.0 record |
 
@@ -841,3 +851,132 @@ Skills: superpowers/brainstorming,writing-plans,test-driven-development,systemat
 > are gone; `src/lib.rs` is the single `impl Hooks` (empty — this mod's behaviour is its
 > content, and the client eye tint remains the recorded gap); `src/runtime.rs` and its 7
 > tests are byte-identical to the retired bundle's. Version **0.2.0**.
+
+## Slice 3 — the client eye overlay (2026-11-21, SDK `0a875da`)
+
+**The slice, quoted from this file (gap 1, "Gaps after the migration").**
+
+> 1. **The client eye overlay is still missing — and the SDK has moved the surface.** …
+>    At `0b14f8a` the surface is different and explicitly documented: `Hooks::gui_layer_pre(host,
+>    event)` with `event.layer`, `event.draw: &mut dyn DrawContext` (`fill`, `size`), and
+>    `ClientViewHost::camera()` … a block read is `LevelsHost::level_block(level, pos)` and the
+>    colour is already in `runtime::tint_for`. … So it is recorded, not faked: the next slice
+>    implements the overlay and proves it with `tools/e2e.sh`'s tint phase.
+
+**Why it fits the tier.** The row is `content`/`data`; the overlay is that tier's **client
+half**, not a new mechanic: it is the render its blocks imply (`RegisterGuiLayersEvent`,
+upstream `ClientTick.java:24-43`), one hook, no block entity, menu, AI, dimension or worldgen.
+Nothing about the mod's tier changes; the sixteen blocks stay carried content.
+
+**What upstream does, read from the repository at `cdfe025f`.** `ClientTick.onRegisterLayers`
+does `event.registerAbove(VanillaGuiLayers.CAMERA_OVERLAYS, "cloudglass:screen_tint", …)`; the
+layer returns unless a client player and level exist, takes
+`BlockPos.containing(mc.player.getEyePosition())`, and if that block `instanceof CloudGlassBlock`
+fills the whole GUI with `(0x80 << 24) | block.getTintRgb()`.
+
+**Plan.**
+
+1. The rule as unit tests: the overlay's ARGB is the dye diffuse colour at alpha `0x80`, and the
+   eye block is the block containing the eye (`BlockPos.containing` floors each coordinate).
+2. The in-game rule first, as a hard screenshot differential: cloud glass **only at the eye**
+   tints; vanilla glass at the eye does not; cloud glass **only at the feet** does not (the
+   block is read at the eye, not at the player); `TINT_SELFTEST=1` inverts the feet claim and
+   must fail.
+3. The red proof against the previous package (0.2.1, no hook).
+4. The glue: `support::on_gui_layer_pre`, drawing beneath the first HUD layer — the crosshair
+   in first person (upstream draws above the camera overlays and below the crosshair), the
+   hotbar in the other camera modes, where vanilla draws no crosshair.
+5. Re-pin to the working pin, bump, ladder, two identical builds, both `fits` runs, in-game legs.
+
+**Red, quoted verbatim.**
+
+- Unit (before `overlay_argb`/`block_at` existed) — `evidence/cloudglass/slice3/unit-red.log`:
+  `error[E0432]: unresolved imports `super::block_at`, `super::overlay_argb`` …
+  `error: could not compile `mod-cloudglass` (lib test) due to 1 previous error` (`exit 101`).
+- In game, the **new** tint phase against the **previous 0.2.1 package** on its `0b14f8a` game —
+  `evidence/cloudglass-e2e/e2e-red-previous-package.log`:
+  `FAIL: cloud glass at the eye did not tint the frame (eye=233.0, off=222.3, needs > 30 closer
+  to 0xF9801D)` + `EXIT:1`. The first attempt at this run measured nothing because `ctl wait`'s
+  JSON leaked into the captured mean (`mean off: {"ok":true,"ticks":4417}`); the helper now
+  silences every `ctl` call, and that broken-red log was replaced, not kept as proof.
+
+**Implementation.**
+
+| File | Role |
+|---|---|
+| `src/runtime.rs` | `OVERLAY_ALPHA` (0x80), `overlay_argb` (alpha + `tint_for`), `block_at` (`BlockPos.containing`); two new tests, **10 total** |
+| `src/support.rs` | `on_gui_layer_pre`: the layer choice, `local_player` → `entity_eye_position` → `player.level` → `level.block` → `overlay_argb` → `draw.fill` |
+| `src/lib.rs` | the one `impl Hooks` now answers `gui_layer_pre` (`Flow::Continue`), delegating to `support` |
+
+The eye is read through **`EntityRef::eye_position`** (`Entity.getEyePosition`), not through
+`ClientViewHost::camera()`: the camera is detached in third person while upstream keys on the
+player's eye in every mode, and this avoids the `0b14f8a`-era doubt about the camera during the
+HUD pass entirely.
+
+**Re-pin and SDK.** `[native]` moved `0b14f8a` → **`0a875da91dbb0fdcb7ba8c42c11341aa229af51a`**
+(mixins unchanged `e59da909…`), version **0.2.2**. Repinning does **not** refresh `.horizon/sdk`
+(trap): `.horizon/sdk` was deleted before the first build and `cargo horizon-mod build` fetched
+and printed `SDK 0a875da (build 0a875da91…51a) in ./.horizon/sdk`.
+
+**Ladder** (all in `ports/tools/build-slot.sh` leases, `CARGO_INCREMENTAL=0`, `BUILD_LOCAL=1`
+because this port has no staged tree for the runner to `cd` into):
+
+| Check | Result | Evidence |
+|---|---|---|
+| `cargo test --offline` | **10 passed**, 0 failed | `evidence/cloudglass/sdk-test.log` |
+| `cargo clippy --all-targets --offline -- -D warnings` | `CLIPPY_EXIT:0`, 0 warnings | `sdk-clippy.log` |
+| `cargo fmt --check` | `FMT_EXIT:0` (after one `cargo fmt` — the new asserts were too long) | `sdk-fmt.log` |
+| `rm -f Cargo.lock && cargo horizon-mod build` ×2 | exit 0 both, `cmp` **identical**, **59,244 B**, `bc86c31e…6f06` | `sdk-build.log`, `sdk-build-second.log` |
+| `cargo horizon-mod check cloudglass.hmod` | `cloudglass 0.2.2 (native-mod, format native-1/0a875da91…/e59da909…, for 26.3)`, `CHECK_EXIT:0` | `sdk-check.log` |
+| `cargo horizon-mod fits cloudglass.hmod --build 0a875da` | `0a875da  made for`, `FITS_EXIT:0` | `fits-0a875da.log` |
+| `cargo horizon-mod fits cloudglass.hmod --build 0b14f8a` (a different build) | `0b14f8a  fits`, `FITS_EXIT:0` | `fits-0b14f8a.log` |
+| `verify-sdk-package.py cloudglass` | **1/1** | `slice3/verify-sdk-package.log` |
+| package | 165 entries, version 0.2.2, **no `Cargo.lock`**, `uses.json` names `hook:gui_layer_pre` | `unzip -l` |
+
+**In-game legs** (`launcher-game.sh build cloudglass` printed `Compiling cloudglass (1 of 1)`
+and exported `native-0a875da-0ab71aebfa5a`; every run through `build-slot.sh run --step e2e`,
+offscreen, log ending `EXIT:<status>`):
+
+| Run | Result | Log |
+|---|---|---|
+| default | **PASS + EXIT:0** — the full content leg plus the tint: off **221.8**, vanilla glass **222.3**, cloud glass at the eye **154.8**, cloud glass at the feet **242.6** | `e2e-launcher-0.2.2.log` |
+| `COUNTERFACTUAL=1` | **PASS + EXIT:0** — vanilla loot/walk differentials unchanged, glass walking stops at 1.20 | `e2e-counterfactual-0.2.2.log` |
+| `SELFTEST=1` | **FAIL + EXIT:1** by design (`white cloud glass dropped 1, expected nothing`) | `e2e-selftest-0.2.2.log` |
+| `TINT_SELFTEST=1` | **FAIL + EXIT:1** by design (`a block at the feet did not tint … this MUST fail`), while the same run's eye case still measures **150.6** vs off **220.8** | `e2e-tint-selftest-0.2.2.log` |
+| `CONTROL=1 GAME=$CONTROL_GAME` | **FAIL + EXIT:1** by design (`x=0 reads 'minecraft:air'`) | `e2e-control-0.2.2.log` |
+| the new phase against the previous 0.2.1 package | **FAIL + EXIT:1** — the red proof | `e2e-red-previous-package.log` |
+
+`python3 ports/tools/check-e2e-logs.py cloudglass-e2e --strict` → **exit 0, 12/12 logs**.
+
+**Delivered artifact.** `ports/cloudglass/cloudglass.hmod`, **59,244 B**, SHA-256
+`bc86c31e60c7f540329ed01dbf3bf03c2a920b822084ba3763e59780e9fc6f06`, version **0.2.2**,
+`native-1/0a875da91dbb0fdcb7ba8c42c11341aa229af51a/e59da9094f0c2fdda6c627fe9eff22dec6a906f0`,
+**165 entries**, no packed `Cargo.lock`, `src/runtime.rs` packed byte-identical
+(`d2f0b1b9…`).
+
+**Deviations recorded (not defects).**
+
+1. **Layer choice.** Upstream's layer sits above `VanillaGuiLayers.CAMERA_OVERLAYS`, below the
+   crosshair. The SDK's HUD layers are the ones `gui_layer_pre` names; the overlay draws in
+   `minecraft:crosshair` in first person (the same paint position) and in `minecraft:hotbar` in
+   the other camera modes, because vanilla only draws a crosshair in first person
+   (`game.rs:8120`) and the hotbar is the next layer that always draws with the HUD. Under F1
+   no HUD layer fires, and upstream's `RenderGuiEvent` path is hidden under F1 too.
+2. **The 3D debug crosshair (F3+B style `debug_crosshair`) skips the crosshair layer**, so in
+   first person with that debug option on the tint is absent; no player-facing setting besides
+   debug reaches it.
+3. The overlay is a flat fill, as upstream's `graphics.fill` is; there is no gradient or
+   texture.
+
+**Upstream defects fixed:** none found in this slice — the eye-block predicate, the alpha and
+the colour are internally consistent with the data and the block class.
+
+Skills: superpowers/using-superpowers,brainstorming,writing-plans,test-driven-development,systematic-debugging,verification-before-completion; BeautifulRust/rust-best-practices
+
+### Next slice (proposal)
+
+No remaining family in this port's gap list is implementable at this pin except the two
+cosmetic content-schema gaps already recorded (beacon beam tint, note-block instrument); both
+are `blocked(content-schema)` by design (`Gaps` 2–3), not work. The next slice for this port
+would be a **confirmation re-run** at the next pin if a Nightly introduces a content field for
+either; otherwise the port is complete.

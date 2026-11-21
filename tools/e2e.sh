@@ -41,6 +41,15 @@
 # wrong expected count must be rejected) and keeps the rest of the leg green,
 # so the output-count assertion is proven fail-capable without a red log.
 #
+# TINT_SELFTEST=1 asserts that a cloud glass block at the *feet* (the eye is
+# clear) tints the frame, which the correct overlay must not do: the run MUST
+# fail there, proving the screenshot differential is not vacuous.
+#
+# The tint phase is a screenshot differential: the same frame with a cloud
+# glass block only at the eye (tinted), only at the feet (not tinted), with
+# vanilla glass at the eye (not tinted) and with nothing at the eye. It is the
+# only evidence the client overlay exists — a readout cannot see a frame.
+#
 # STATUS (2026-11-20, SDK 0b14f8a): the port is one flat `.hmod`, and this
 # script runs against the **launcher-built game** that carries it
 # (`ports/tools/launcher-game.sh run cloudglass`). When `$GAME` is such a build
@@ -67,6 +76,7 @@ SELFTEST=${SELFTEST:-0}
 CONTROL=${CONTROL:-0}
 DEV_MOD=${DEV_MOD:-auto}
 RECIPE_SELFTEST=${RECIPE_SELFTEST:-0}
+TINT_SELFTEST=${TINT_SELFTEST:-0}
 WORLD=CloudGlassE2E
 
 [ -x "$CTL" ] || { echo "missing horizon-ctl: $CTL" >&2; exit 1; }
@@ -440,10 +450,16 @@ fi
 echo "unknown cloud glass ids are refused (give, command setblock)"
 
 echo "== screen tint while the eye is inside cloud glass (screenshot differential) =="
-# The overlay is a client layer over the world: the same frame with nothing at
-# the eye, with vanilla glass at the eye (no tint) and with cloud glass (the
-# orange diffuse colour at alpha 0x80). The central 40% of the frame is
-# compared against the dye colour, so the HUD and the hand do not matter.
+# Upstream `ClientTick.java:24-43` fills the frame with ARGB `0x80` +
+# `CloudGlassBlock.getTintRgb()` when the block at
+# `BlockPos.containing(player.getEyePosition())` is a Cloud Glass block. This
+# phase measures the same frame three ways, from the central 40% so the HUD and
+# the hand do not matter:
+#   off   — nothing at the eye or the feet;
+#   glass — vanilla glass at the eye (the control that must not tint);
+#   eye   — cloud glass at the eye and air at the feet (must tint);
+#   feet  — cloud glass at the feet and nothing at the eye (must NOT tint: the
+#           block is read at the eye, as upstream does, not at the player).
 mean_rgb() {
     python3 - "$1" <<'PY'
 import sys
@@ -456,54 +472,54 @@ n = len(px)
 print(sum(p[0] for p in px) / n, sum(p[1] for p in px) / n, sum(p[2] for p in px) / n)
 PY
 }
-# Euclidean distance to orange's diffuse colour (0xF9801D).
+# Euclidean distance to orange's diffuse colour (0xF9801D), the tint's colour.
 orange_distance() {
     awk -v r="$1" -v g="$2" -v b="$3" 'BEGIN { printf "%.1f", sqrt((r-249)^2 + (g-128)^2 + (b-29)^2) }'
 }
-eye() { # block: put it at the feet and the eye, or clear both
-    ctl command "setblock 0 80 0 $1" >/dev/null
+tint_shot() { # <eye block> <feet block> <tag> -> the frame's mean RGB
     ctl command "setblock 0 81 0 $1" >/dev/null
-    ctl wait 10
+    ctl command "setblock 0 80 0 $2" >/dev/null
+    ctl wait 10 >/dev/null
+    ctl screenshot "$SCRATCH/tint-$3.png" >/dev/null
+    mean_rgb "$SCRATCH/tint-$3.png"
 }
 
 end "fill -16 80 -16 40 90 16 minecraft:air" >/dev/null
 ctl command "tp @s 0.5 80 0.5" >/dev/null
+ctl look-at 0.5 80 -40 >/dev/null
 ctl wait 10
-ctl screenshot "$SCRATCH/tint-off.png" >/dev/null
-read -r r0 g0 b0 <<<"$(mean_rgb "$SCRATCH/tint-off.png")"
-eye minecraft:glass
-ctl screenshot "$SCRATCH/tint-glass.png" >/dev/null
-read -r rg gg bg <<<"$(mean_rgb "$SCRATCH/tint-glass.png")"
-eye cloudglass:orange_cloud_glass
-ctl screenshot "$SCRATCH/tint-on.png" >/dev/null
-read -r r1 g1 b1 <<<"$(mean_rgb "$SCRATCH/tint-on.png")"
+read -r r0 g0 b0 <<<"$(tint_shot minecraft:air minecraft:air off)"
+read -r rg gg bg <<<"$(tint_shot minecraft:glass minecraft:air glass)"
+read -r r1 g1 b1 <<<"$(tint_shot cloudglass:orange_cloud_glass minecraft:air eye)"
+read -r rf gf bf <<<"$(tint_shot minecraft:air cloudglass:orange_cloud_glass feet)"
 d0=$(orange_distance "$r0" "$g0" "$b0")
 dg=$(orange_distance "$rg" "$gg" "$bg")
 d1=$(orange_distance "$r1" "$g1" "$b1")
+df=$(orange_distance "$rf" "$gf" "$bf")
 echo "  mean off:   $r0 $g0 $b0 (orange distance $d0)"
 echo "  mean glass: $rg $gg $bg (orange distance $dg)"
-echo "  mean tint:  $r1 $g1 $b1 (orange distance $d1)"
-# The flat package still implements no client hook: the eye overlay is the
-# port's one recorded gap (notes.md, "Gaps after the migration" #1), left for
-# the next slice. The SDK at 0b14f8a exposes `gui_layer_pre` with a camera that
-# is documented current during GUI rendering, a `DrawContext::fill` and a level
-# block read, so the overlay is expressible. The assertion therefore holds the
-# frame to a real orange shift wherever an implementation exists, and records
-# the measured gap — never a silent pass — where the package has none. A
-# vanilla-glass eye that tints is the wrong behaviour and still fails.
-if awk -v a="$d1" -v b="$d0" 'BEGIN { exit !(a < b - 30) }'; then
-    awk -v a="$d1" -v b="$dg" 'BEGIN { exit !(a < b - 30) }' \
-        || fail "the tint did not follow the cloud-glass block (vanilla glass at the eye is the control)"
-    TINT_VERDICT="the eye overlay tints the frame with cloud glass and not with vanilla glass"
-    echo "eye overlay: the orange cloud glass tints the frame; vanilla glass does not"
-elif awk -v a="$dg" -v b="$d0" 'BEGIN { exit !(a < b - 30) }'; then
-    fail "vanilla glass at the eye tinted the frame: the overlay ignores the block"
-else
-    TINT_VERDICT="the eye overlay is the recorded gap (no client hook yet; cloud glass $d1 vs off $d0, vanilla glass $dg)"
-    echo "GAP (recorded in notes.md): the eye overlay is not implemented in this"
-    echo "  slice — the measured frame is unchanged with cloud glass at the eye"
-    echo "  (distance $d1 vs off $d0, vanilla glass $dg), so no tint is claimed."
+echo "  mean eye:   $r1 $g1 $b1 (orange distance $d1)"
+echo "  mean feet:  $rf $gf $bf (orange distance $df)"
+
+if [ "$TINT_SELFTEST" = 1 ]; then
+    # Counterfactual: a cloud glass block at the feet, with the eye clear, must
+    # NOT tint. Asserting that it does makes the run fail — the proof that the
+    # assertion below can fail.
+    awk -v a="$df" -v b="$d0" 'BEGIN { exit !(a < b - 30) }' \
+        || fail "tint selftest: a block at the feet did not tint (feet=$df, off=$d0), so this MUST fail: the overlay reads the eye, not the feet"
 fi
-eye minecraft:air
+awk -v a="$d1" -v b="$d0" 'BEGIN { exit !(a < b - 30) }' \
+    || fail "cloud glass at the eye did not tint the frame (eye=$d1, off=$d0, needs > 30 closer to 0xF9801D)"
+awk -v a="$d1" -v b="$dg" 'BEGIN { exit !(a < b - 30) }' \
+    || fail "the tint did not follow the cloud-glass block (vanilla glass eye=$dg, cloud eye=$d1)"
+if awk -v a="$dg" -v b="$d0" 'BEGIN { exit !(a < b - 30) }'; then
+    fail "vanilla glass at the eye tinted the frame: the overlay ignores the block"
+fi
+awk -v a="$df" -v b="$d0" 'BEGIN { exit !(a >= b - 30) }' \
+    || fail "a cloud glass block at the feet alone tinted the frame (feet=$df, off=$d0): the overlay does not read the eye"
+TINT_VERDICT="the eye overlay tints the frame with cloud glass at the eye (orange distance $d1 vs off $d0) and not with vanilla glass ($dg) or a cloud glass block at the feet alone ($df)"
+echo "eye overlay: $TINT_VERDICT"
+ctl command "setblock 0 81 0 minecraft:air" >/dev/null
+ctl command "setblock 0 80 0 minecraft:air" >/dev/null
 
 echo "PASS: 16/16 states bind with no property and stay unchanged when a neighbour is added or removed, 16/16 items give, the tab lists 16, 16/16 colours drop exactly one of themselves, all 31 carried recipes craft their declared output and consume their ingredients while both stick controls stay empty, #c:glass_blocks/colorless and #c:dyes/light_blue match their members and nothing else, walking through cloud glass matches air while vanilla glass stops the player and cobweb slows them, 16/16 block items place and read back, $TINT_VERDICT, and unknown ids are refused by give and setblock"
